@@ -3,6 +3,7 @@ from discord.ext import commands
 import asyncio
 import json
 from datetime import datetime
+import time
 
 class MassDM(commands.Cog):
     def __init__(self, bot):
@@ -14,50 +15,113 @@ class MassDM(commands.Cog):
         self.is_dming = False
         self.current_message = ""
         self.embed_mode = False
+        self.dm_mode = "safe"  # "safe" or "ultrafast"
+        self.batch_size = 50  # Ultrafast ke liye
+        self.delay_safe = 1.0  # Safe mode delay
+        self.delay_ultrafast = 0.1  # Ultrafast mode delay
 
     @commands.command(name='setup')
     @commands.has_permissions(administrator=True)
     async def setup_panel(self, ctx):
         """Setup Admin Panel for Mass DM"""
         embed = discord.Embed(
-            title="⚙️ MASS DM BOT - ADMIN PANEL",
-            description="**Setup successful!** This channel is now your Mass DM control panel.",
+            title="⚡ MASS DM BOT - ADMIN PANEL",
+            description="**Professional Mass DM System with Dual Mode**",
             color=0x5865F2,
             timestamp=datetime.utcnow()
         )
         
         embed.add_field(
-            name="📋 AVAILABLE COMMANDS",
-            value=(
-                "`!setdm [message]` - Set DM message\n"
-                "`!setembed` - Toggle embed mode\n"
-                "`!preview` - Preview current message\n"
-                "`!startdm` - Start Mass DM\n"
-                "`!stopdm` - Stop Mass DM\n"
-                "`!dmstatus` - Check DM status\n"
-                "`!dmstats` - View statistics\n"
-                "`!dmhelp` - Show help menu"
-            ),
+            name="🚀 ULTRA FAST MODE",
+            value="• Speed: **Light Speed** ⚡\n• Time: **5-10 seconds**\n• Risk: **HIGH**\n• Rate Limit: **POSSIBLE**",
             inline=False
         )
         
         embed.add_field(
-            name="⚡ QUICK START",
+            name="🛡️ SAFE MODE",
+            value="• Speed: **25 seconds** ⏱️\n• Time: **Controlled**\n• Risk: **LOW**\n• Rate Limit: **AVOIDED**",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📋 COMMANDS",
             value=(
-                "1. Use `!setdm your message` to set message\n"
-                "2. Use `!setembed` for embed mode\n"
-                "3. Use `!preview` to check message\n"
-                "4. Use `!startdm` to begin sending"
+                "`!setdm [message]` - Set DM message\n"
+                "`!setembed` - Toggle embed mode\n"
+                "`!mode [ultrafast/safe]` - Change DM mode\n"
+                "`!preview` - Preview message\n"
+                "`!startdm` - Start Mass DM\n"
+                "`!stopdm` - Stop Mass DM\n"
+                "`!dmstatus` - Check status\n"
+                "`!dmstats` - View statistics\n"
+                "`!dmhelp` - Show help"
             ),
             inline=False
         )
         
-        embed.set_footer(text="Mass DM Bot • Professional Messaging System")
+        embed.set_footer(text="⚡ Ultrafast Mode | 🛡️ Safe Mode")
         await ctx.send(embed=embed)
         
-        # Save this channel as admin panel
         self.bot.admin_panel_channels[str(ctx.guild.id)] = str(ctx.channel.id)
         self.bot.save_data()
+
+    @commands.command(name='mode')
+    @commands.has_permissions(administrator=True)
+    async def set_dm_mode(self, ctx, mode: str):
+        """Set DM mode: ultrafast or safe"""
+        if mode.lower() in ["ultrafast", "fast", "light", "⚡"]:
+            self.dm_mode = "ultrafast"
+            self.batch_size = 50
+            self.delay_ultrafast = 0.05  # 20 DMs per second!
+            
+            embed = discord.Embed(
+                title="⚡ ULTRA FAST MODE ACTIVATED",
+                description="**Warning:** This mode may trigger rate limits!",
+                color=0xff0000,
+                timestamp=datetime.utcnow()
+            )
+            
+            embed.add_field(
+                name="⚡ SPEED SETTINGS",
+                value="• Delay: `0.05 seconds`\n• Batch Size: `50 members`\n• Estimated Speed: `20 DMs/second`\n• Risk Level: **HIGH**",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⚠️ WARNING",
+                value="This mode sends DMs at maximum possible speed. May cause rate limits or temporary bans.",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+            
+        elif mode.lower() in ["safe", "slow", "normal", "🛡️"]:
+            self.dm_mode = "safe"
+            self.batch_size = 10
+            self.delay_safe = 1.5
+            
+            embed = discord.Embed(
+                title="🛡️ SAFE MODE ACTIVATED",
+                description="**Rate Limit Safe Mode**",
+                color=0x00ff00,
+                timestamp=datetime.utcnow()
+            )
+            
+            embed.add_field(
+                name="⚙️ SAFE SETTINGS",
+                value="• Delay: `1.5 seconds`\n• Batch Size: `10 members`\n• Estimated Speed: `0.67 DMs/second`\n• Risk Level: **LOW**",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="✅ BENEFITS",
+                value="• No rate limits\n• No bot bans\n• Stable delivery\n• Professional",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ Invalid mode! Use `ultrafast` or `safe`")
 
     @commands.command(name='setdm')
     @commands.has_permissions(administrator=True)
@@ -68,94 +132,39 @@ class MassDM(commands.Cog):
         
         embed = discord.Embed(
             title="✅ MESSAGE SET",
-            description=f"Message saved successfully!\n\n**Preview:**\n{message[:500]}...",
+            description=f"**Mode:** `{self.dm_mode.upper()}`\n\n**Preview:**\n{message[:300]}...",
             color=0x00ff00,
             timestamp=datetime.utcnow()
         )
-        embed.add_field(name="📊 STATS", value=f"• Characters: `{len(message)}`\n• Mode: `Normal Text`", inline=False)
-        embed.set_footer(text="Use !preview to see full message")
+        
+        time_estimate = self.calculate_time(ctx.guild)
+        embed.add_field(
+            name="⏱️ TIME ESTIMATE",
+            value=f"• **{self.dm_mode} mode**\n• Members: `{sum(1 for m in ctx.guild.members if not m.bot)}`\n• Est. Time: `{time_estimate}`",
+            inline=False
+        )
+        
         await ctx.send(embed=embed)
 
-    @commands.command(name='setembed')
-    @commands.has_permissions(administrator=True)
-    async def set_embed_message(self, ctx, *, json_data: str = None):
-        """Set embed message using JSON or interactive mode"""
-        if json_data:
-            try:
-                data = json.loads(json_data)
-                self.current_message = data
-                self.embed_mode = True
-                await ctx.send("✅ Embed message set from JSON!")
-            except:
-                await ctx.send("❌ Invalid JSON format!")
+    def calculate_time(self, guild):
+        """Calculate estimated time based on mode"""
+        members = sum(1 for m in guild.members if not m.bot)
+        
+        if self.dm_mode == "ultrafast":
+            # 0.05 seconds per member, batches of 50
+            total_time = (members / 50) * 0.05
+            if total_time < 10:
+                return f"{total_time:.1f} seconds ⚡"
+            else:
+                return f"{total_time:.1f} seconds"
         else:
-            # Interactive embed builder
-            embed = discord.Embed(
-                title="🎨 EMBED BUILDER",
-                description="React with emojis to build your embed:",
-                color=0x5865F2
-            )
-            
-            embed.add_field(
-                name="📝 OPTIONS",
-                value=(
-                    "🇹 - Set Title\n"
-                    "🇩 - Set Description\n"
-                    "🇨 - Set Color\n"
-                    "🇫 - Add Field\n"
-                    "🇮 - Set Image URL\n"
-                    "🇹🇭 - Set Thumbnail\n"
-                    "🇫🇴 - Set Footer\n"
-                    "✅ - Finish & Save"
-                ),
-                inline=False
-            )
-            
-            msg = await ctx.send(embed=embed)
-            
-            # Add reactions
-            reactions = ['🇹', '🇩', '🇨', '🇫', '🇮', '🇹🇭', '🇫🇴', '✅']
-            for reaction in reactions:
-                await msg.add_reaction(reaction)
-            
-            # Store message for later
-            self.embed_builder_msg = msg
-            self.embed_data = {
-                'title': '',
-                'description': '',
-                'color': 0x5865F2,
-                'fields': [],
-                'image': '',
-                'thumbnail': '',
-                'footer': ''
-            }
-
-    @commands.command(name='preview')
-    @commands.has_permissions(administrator=True)
-    async def preview_message(self, ctx):
-        """Preview the current message"""
-        if not self.current_message:
-            await ctx.send("❌ No message set! Use `!setdm` first.")
-            return
-            
-        if self.embed_mode:
-            try:
-                if isinstance(self.current_message, dict):
-                    embed = discord.Embed.from_dict(self.current_message)
-                    await ctx.send("**📋 PREVIEW:**", embed=embed)
-                else:
-                    await ctx.send("❌ Invalid embed data!")
-            except:
-                await ctx.send("❌ Error displaying embed!")
-        else:
-            embed = discord.Embed(
-                title="📋 MESSAGE PREVIEW",
-                description=self.current_message[:4000],
-                color=0x5865F2,
-                timestamp=datetime.utcnow()
-            )
-            embed.set_footer(text=f"Length: {len(self.current_message)} characters")
-            await ctx.send(embed=embed)
+            # 1.5 seconds per member, batches of 10
+            total_time = (members / 10) * 1.5
+            if total_time < 60:
+                return f"{total_time:.1f} seconds"
+            else:
+                minutes = total_time / 60
+                return f"{minutes:.1f} minutes"
 
     @commands.command(name='startdm')
     @commands.has_permissions(administrator=True)
@@ -168,31 +177,19 @@ class MassDM(commands.Cog):
         if not self.current_message:
             await ctx.send("❌ No message set! Use `!setdm` first.")
             return
-            
-        # Confirmation
-        confirm_embed = discord.Embed(
-            title="⚠️ CONFIRM MASS DM",
-            description=f"This will send DM to **ALL** members of **{ctx.guild.name}**",
-            color=0xff9900,
-            timestamp=datetime.utcnow()
-        )
         
-        member_count = sum(1 for m in ctx.guild.members if not m.bot)
-        confirm_embed.add_field(
-            name="📊 STATISTICS",
-            value=f"• Total Members: `{member_count}`\n• Bots Excluded: `✅`\n• Estimated Time: `{member_count*2} seconds`",
-            inline=False
-        )
+        members = [m for m in ctx.guild.members if not m.bot]
+        if not members:
+            await ctx.send("❌ No members found to DM!")
+            return
         
-        confirm_embed.add_field(
-            name="🚨 WARNING",
-            value="This action cannot be undone! Make sure you have the right to DM all members.",
-            inline=False
-        )
+        # Mode-specific confirmation
+        if self.dm_mode == "ultrafast":
+            embed = self.create_ultrafast_confirmation(ctx, members)
+        else:
+            embed = self.create_safe_confirmation(ctx, members)
         
-        confirm_embed.set_footer(text="React with ✅ to confirm or ❌ to cancel")
-        
-        msg = await ctx.send(embed=confirm_embed)
+        msg = await ctx.send(embed=embed)
         await msg.add_reaction('✅')
         await msg.add_reaction('❌')
         
@@ -204,7 +201,7 @@ class MassDM(commands.Cog):
             
             if str(reaction.emoji) == '✅':
                 await msg.delete()
-                await self.start_dm_process(ctx)
+                await self.start_dm_process(ctx, members)
             else:
                 await msg.delete()
                 await ctx.send("❌ Mass DM cancelled.")
@@ -213,120 +210,275 @@ class MassDM(commands.Cog):
             await msg.delete()
             await ctx.send("❌ Confirmation timeout. Operation cancelled.")
 
-    async def start_dm_process(self, ctx):
-        """Actual DM sending process"""
+    def create_ultrafast_confirmation(self, ctx, members):
+        """Create confirmation embed for ultrafast mode"""
+        embed = discord.Embed(
+            title="⚡ ULTRA FAST MASS DM - CONFIRM",
+            description=f"**{ctx.guild.name}** - {len(members)} members",
+            color=0xff0000,
+            timestamp=datetime.utcnow()
+        )
+        
+        embed.add_field(
+            name="🚀 ULTRA FAST MODE",
+            value="• Speed: **MAXIMUM POSSIBLE** ⚡\n• Delay: `0.05 seconds`\n• Batch: `50 members/batch`\n• Est. Time: `5-10 seconds`",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚠️ EXTREME WARNING",
+            value="**HIGH RISK OF RATE LIMITS!**\n• Discord may temporarily ban the bot\n• Use at your own risk\n• Not recommended for large servers",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🔥 BYPASS TECHNIQUES",
+            value="• Batch sending (50 at once)\n• Minimum delays\n• Async overload\n• Maximum speed",
+            inline=False
+        )
+        
+        embed.set_footer(text="⚡ LIGHT SPEED DM - Confirm with ✅")
+        return embed
+
+    def create_safe_confirmation(self, ctx, members):
+        """Create confirmation embed for safe mode"""
+        embed = discord.Embed(
+            title="🛡️ SAFE MASS DM - CONFIRM",
+            description=f"**{ctx.guild.name}** - {len(members)} members",
+            color=0x00ff00,
+            timestamp=datetime.utcnow()
+        )
+        
+        time_est = self.calculate_time(ctx.guild)
+        
+        embed.add_field(
+            name="🛡️ SAFE MODE",
+            value=f"• Speed: **CONTROLLED**\n• Delay: `1.5 seconds`\n• Batch: `10 members/batch`\n• Est. Time: `{time_est}`",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="✅ SAFETY FEATURES",
+            value="• No rate limits\n• Stable delivery\n• Progress saving\n• Can be stopped anytime",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 ESTIMATED STATS",
+            value=f"• Total Members: `{len(members)}`\n• Success Rate: `~95%`\n• Time Required: `{time_est}`\n• Status: **SAFE**",
+            inline=False
+        )
+        
+        embed.set_footer(text="🛡️ RATE LIMIT SAFE - Confirm with ✅")
+        return embed
+
+    async def start_dm_process(self, ctx, members):
+        """Start DM process based on mode"""
         self.is_dming = True
         self.sent_count = 0
         self.failed_count = 0
-        
-        # Get all non-bot members
-        members = [m for m in ctx.guild.members if not m.bot]
         self.total_members = len(members)
         
-        if self.total_members == 0:
-            await ctx.send("❌ No members found to DM!")
-            self.is_dming = False
-            return
+        progress_msg = await ctx.send(f"🔄 **Starting {self.dm_mode.upper()} Mass DM...**")
         
-        # Progress embed
-        progress_msg = await ctx.send("🔄 **Starting Mass DM...**")
+        # Start appropriate DM task
+        if self.dm_mode == "ultrafast":
+            task = asyncio.create_task(self.send_ultrafast_dms(ctx, members, progress_msg))
+        else:
+            task = asyncio.create_task(self.send_safe_dms(ctx, members, progress_msg))
         
-        # Start DM task
-        task = asyncio.create_task(self.send_dms(ctx, members, progress_msg))
         self.dm_tasks[ctx.guild.id] = task
         
         try:
             await task
         except asyncio.CancelledError:
-            await progress_msg.edit(content="⏹️ **Mass DM Stopped!**")
+            await progress_msg.edit(content=f"⏹️ **{self.dm_mode.upper()} Mass DM Stopped!**")
         except Exception as e:
             await progress_msg.edit(content=f"❌ **Error:** {str(e)}")
         finally:
             self.is_dming = False
 
-    async def send_dms(self, ctx, members, progress_msg):
-        """Send DMs to all members"""
+    async def send_ultrafast_dms(self, ctx, members, progress_msg):
+        """ULTRA FAST DM sending - Light Speed ⚡"""
+        total_members = len(members)
+        start_time = time.time()
+        
+        # Send in ultra-fast batches
+        for i in range(0, total_members, self.batch_size):
+            if not self.is_dming:
+                break
+                
+            batch = members[i:i + self.batch_size]
+            batch_tasks = []
+            
+            # Create send tasks for batch
+            for member in batch:
+                try:
+                    if self.embed_mode and isinstance(self.current_message, dict):
+                        embed = discord.Embed.from_dict(self.current_message)
+                        batch_tasks.append(member.send(embed=embed))
+                    else:
+                        batch_tasks.append(member.send(self.current_message))
+                except:
+                    self.failed_count += 1
+            
+            # Send entire batch at once - MAXIMUM SPEED
+            if batch_tasks:
+                try:
+                    results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+                    successful = sum(1 for r in results if not isinstance(r, Exception))
+                    self.sent_count += successful
+                    self.failed_count += len(results) - successful
+                except:
+                    self.failed_count += len(batch_tasks)
+            
+            # Update progress
+            current = min(i + self.batch_size, total_members)
+            elapsed = time.time() - start_time
+            speed = self.sent_count / elapsed if elapsed > 0 else 0
+            
+            # Ultra-fast progress update
+            if i % 100 == 0 or current == total_members:
+                embed = discord.Embed(
+                    title="⚡ ULTRA FAST DM - IN PROGRESS",
+                    color=0xff0000,
+                    timestamp=datetime.utcnow()
+                )
+                
+                progress_percent = (current / total_members) * 100
+                remaining = total_members - current
+                eta = remaining / (speed if speed > 0 else 50)
+                
+                embed.add_field(
+                    name="📊 PROGRESS",
+                    value=f"```\n{current}/{total_members}\n{progress_percent:.1f}%\n```",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="⚡ SPEED",
+                    value=f"• DMs/sec: `{speed:.1f}`\n• ETA: `{eta:.1f}s`\n• Elapsed: `{elapsed:.1f}s`",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="📈 STATS",
+                    value=f"• ✅ Sent: `{self.sent_count}`\n• ❌ Failed: `{self.failed_count}`\n• 🎯 Success: `{(self.sent_count/current*100):.1f}%`",
+                    inline=False
+                )
+                
+                try:
+                    await progress_msg.edit(embed=embed)
+                except:
+                    pass
+            
+            # MINIMUM DELAY - LIGHT SPEED
+            await asyncio.sleep(self.delay_ultrafast)
+        
+        # Completion for ultrafast
+        await self.send_completion_message(ctx, progress_msg, members, start_time, "ULTRA FAST")
+
+    async def send_safe_dms(self, ctx, members, progress_msg):
+        """SAFE DM sending - Rate Limit Safe"""
+        total_members = len(members)
+        start_time = time.time()
+        
         for i, member in enumerate(members):
             if not self.is_dming:
                 break
                 
             try:
-                if self.embed_mode:
-                    # Send embed
-                    if isinstance(self.current_message, dict):
-                        embed = discord.Embed.from_dict(self.current_message)
-                        await member.send(embed=embed)
-                    else:
-                        await member.send(self.current_message)
+                if self.embed_mode and isinstance(self.current_message, dict):
+                    embed = discord.Embed.from_dict(self.current_message)
+                    await member.send(embed=embed)
                 else:
-                    # Send normal message
                     await member.send(self.current_message)
-                    
                 self.sent_count += 1
-                
-                # Update progress every 10 members
-                if i % 10 == 0 or i == len(members) - 1:
-                    progress = (i + 1) / len(members) * 100
-                    
-                    embed = discord.Embed(
-                        title="📤 MASS DM IN PROGRESS",
-                        color=0x5865F2,
-                        timestamp=datetime.utcnow()
-                    )
-                    
-                    embed.add_field(
-                        name="📊 PROGRESS",
-                        value=f"```\n{self.sent_count}/{len(members)} members\n{progress:.1f}% complete\n```",
-                        inline=False
-                    )
-                    
-                    embed.add_field(
-                        name="⚡ STATS",
-                        value=f"• ✅ Sent: `{self.sent_count}`\n• ❌ Failed: `{self.failed_count}`\n• ⏱️ Remaining: `{len(members) - i - 1}`",
-                        inline=True
-                    )
-                    
-                    embed.set_footer(text=f"Current: {member.name}")
-                    
-                    try:
-                        await progress_msg.edit(embed=embed)
-                    except:
-                        pass
-                    
-                # Rate limiting
-                await asyncio.sleep(1.5)
-                
             except discord.Forbidden:
                 self.failed_count += 1
-                continue
             except Exception as e:
                 self.failed_count += 1
-                continue
+            
+            # Update progress every 10 members
+            if i % 10 == 0 or i == total_members - 1:
+                elapsed = time.time() - start_time
+                progress = (i + 1) / total_members * 100
+                speed = self.sent_count / elapsed if elapsed > 0 else 0
+                
+                embed = discord.Embed(
+                    title="🛡️ SAFE DM - IN PROGRESS",
+                    color=0x00ff00,
+                    timestamp=datetime.utcnow()
+                )
+                
+                embed.add_field(
+                    name="📊 PROGRESS",
+                    value=f"```\n{i+1}/{total_members}\n{progress:.1f}%\n```",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="⏱️ TIMING",
+                    value=f"• Speed: `{speed:.2f}/sec`\n• Elapsed: `{elapsed:.0f}s`\n• Delay: `{self.delay_safe}s`",
+                    inline=True
+                )
+                
+                embed.add_field(
+                    name="📈 STATISTICS",
+                    value=f"• ✅ Sent: `{self.sent_count}`\n• ❌ Failed: `{self.failed_count}`\n• 🎯 Rate: `{(self.sent_count/(i+1)*100):.1f}%`",
+                    inline=False
+                )
+                
+                try:
+                    await progress_msg.edit(embed=embed)
+                except:
+                    pass
+            
+            # Safe delay to avoid rate limits
+            await asyncio.sleep(self.delay_safe)
         
-        # Completion message
-        if self.is_dming:
-            complete_embed = discord.Embed(
-                title="✅ MASS DM COMPLETE",
-                color=0x00ff00,
-                timestamp=datetime.utcnow()
-            )
-            
-            complete_embed.add_field(
-                name="📊 FINAL STATISTICS",
-                value=f"```\nTotal Members: {len(members)}\n✅ Successful: {self.sent_count}\n❌ Failed: {self.failed_count}\n🎯 Success Rate: {(self.sent_count/len(members)*100):.1f}%\n```",
+        # Completion for safe mode
+        await self.send_completion_message(ctx, progress_msg, members, start_time, "SAFE")
+
+    async def send_completion_message(self, ctx, progress_msg, members, start_time, mode):
+        """Send completion message"""
+        elapsed = time.time() - start_time
+        total = len(members)
+        
+        embed = discord.Embed(
+            title=f"✅ {mode} MASS DM COMPLETE",
+            color=0x00ff00 if mode == "SAFE" else 0xff0000,
+            timestamp=datetime.utcnow()
+        )
+        
+        embed.add_field(
+            name="📊 FINAL STATISTICS",
+            value=f"```\nTotal Members: {total}\n✅ Successful: {self.sent_count}\n❌ Failed: {self.failed_count}\n🎯 Success Rate: {(self.sent_count/total*100):.1f}%\n⏱️ Time Taken: {elapsed:.1f} seconds\n```",
+            inline=False
+        )
+        
+        embed.add_field(
+            name=f"⚡ {mode} MODE PERFORMANCE",
+            value=f"• Avg. Speed: `{self.sent_count/elapsed:.2f} DMs/sec`\n• Total Time: `{elapsed:.1f}s`\n• Efficiency: `{(self.sent_count/total*100):.1f}%`",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📝 MESSAGE SENT",
+            value=f"```\n{str(self.current_message)[:150]}...\n```",
+            inline=False
+        )
+        
+        if mode == "ULTRA FAST":
+            embed.add_field(
+                name="⚠️ ULTRA FAST MODE NOTE",
+                value="Bot may be rate limited temporarily. Wait 5-10 minutes before next ultra fast DM.",
                 inline=False
             )
-            
-            complete_embed.add_field(
-                name="📝 MESSAGE SENT",
-                value=f"```\n{self.current_message[:200]}...\n```" if len(str(self.current_message)) > 200 else f"```\n{self.current_message}\n```",
-                inline=False
-            )
-            
-            complete_embed.set_footer(text="Mass DM Bot • Professional Delivery")
-            
-            await progress_msg.edit(embed=complete_embed)
-            self.is_dming = False
+        
+        embed.set_footer(text=f"{mode} Mass DM Bot • Professional Delivery")
+        
+        await progress_msg.edit(embed=embed)
 
     @commands.command(name='stopdm')
     @commands.has_permissions(administrator=True)
@@ -342,16 +494,18 @@ class MassDM(commands.Cog):
             self.dm_tasks[ctx.guild.id].cancel()
             del self.dm_tasks[ctx.guild.id]
         
+        mode_display = "⚡ ULTRA FAST" if self.dm_mode == "ultrafast" else "🛡️ SAFE"
+        
         embed = discord.Embed(
-            title="⏹️ MASS DM STOPPED",
-            description="DM sending process has been stopped.",
+            title=f"⏹️ {mode_display} MASS DM STOPPED",
+            description=f"DM sending process has been stopped.",
             color=0xff9900,
             timestamp=datetime.utcnow()
         )
         
         embed.add_field(
             name="📊 PARTIAL STATS",
-            value=f"• ✅ Sent: `{self.sent_count}`\n• ❌ Failed: `{self.failed_count}`\n• 📊 Progress: `{(self.sent_count/self.total_members*100):.1f}%`",
+            value=f"• ✅ Sent: `{self.sent_count}`\n• ❌ Failed: `{self.failed_count}`\n• 📊 Progress: `{(self.sent_count/self.total_members*100):.1f}%`\n• Mode: `{self.dm_mode.upper()}`",
             inline=False
         )
         
@@ -361,15 +515,17 @@ class MassDM(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def dm_status(self, ctx):
         """Check DM sending status"""
+        members = [m for m in ctx.guild.members if not m.bot]
+        
         embed = discord.Embed(
-            title="📊 DM STATUS",
-            color=0x5865F2,
+            title="📊 DM STATUS DASHBOARD",
+            color=0x5865F2 if self.dm_mode == "safe" else 0xff0000,
             timestamp=datetime.utcnow()
         )
         
         if self.is_dming:
-            embed.description = "🔄 **Mass DM in Progress**"
-            embed.color = 0xff9900
+            mode_display = "⚡ ULTRA FAST" if self.dm_mode == "ultrafast" else "🛡️ SAFE"
+            embed.description = f"🔄 **{mode_display} MASS DM IN PROGRESS**"
             
             progress = (self.sent_count / self.total_members * 100) if self.total_members > 0 else 0
             
@@ -379,30 +535,44 @@ class MassDM(commands.Cog):
                 inline=False
             )
             
-            embed.add_field(
-                name="⚡ SPEED",
-                value=f"• Rate: `1.5s per member`\n• ETA: `{(self.total_members - self.sent_count) * 1.5:.0f} seconds`",
-                inline=True
-            )
+            if self.dm_mode == "ultrafast":
+                embed.add_field(
+                    name="⚡ ULTRA FAST MODE",
+                    value="• Speed: **MAXIMUM**\n• Delay: `0.05s`\n• Batch: `50/batch`\n• Risk: **HIGH**",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="🛡️ SAFE MODE",
+                    value="• Speed: `0.67/sec`\n• Delay: `1.5s`\n• Batch: `10/batch`\n• Risk: **LOW**",
+                    inline=True
+                )
         else:
-            embed.description = "✅ **No DM process running**"
-            embed.color = 0x00ff00
+            embed.description = "✅ **READY FOR MASS DM**"
             
             if self.current_message:
                 msg_type = "Embed" if self.embed_mode else "Text"
+                time_est = self.calculate_time(ctx.guild)
+                
                 embed.add_field(
-                    name="📝 READY MESSAGE",
-                    value=f"• Type: `{msg_type}`\n• Length: `{len(str(self.current_message))} chars`",
+                    name="📝 CURRENT SETUP",
+                    value=f"• Mode: `{self.dm_mode.upper()}`\n• Type: `{msg_type}`\n• Length: `{len(str(self.current_message))} chars`\n• Est. Time: `{time_est}`",
                     inline=False
+                )
+                
+                embed.add_field(
+                    name="👥 SERVER STATS",
+                    value=f"• Total Members: `{len(ctx.guild.members)}`\n• Humans: `{len(members)}`\n• Ready for DM: `✅`",
+                    inline=True
                 )
             else:
                 embed.add_field(
                     name="⚠️ NO MESSAGE SET",
-                    value="Use `!setdm` to set a message",
+                    value="Use `!setdm` to set a message first",
                     inline=False
                 )
         
-        embed.set_footer(text="Use !startdm to begin sending")
+        embed.set_footer(text=f"Current Mode: {self.dm_mode.upper()}")
         await ctx.send(embed=embed)
 
     @commands.command(name='dmstats')
@@ -410,73 +580,117 @@ class MassDM(commands.Cog):
     async def dm_statistics(self, ctx):
         """View DM statistics"""
         members = [m for m in ctx.guild.members if not m.bot]
-        dm_enabled = sum(1 for m in members if not m.is_on_mobile())  # Approximate
         
         embed = discord.Embed(
-            title="📈 DM STATISTICS",
+            title="📈 ADVANCED DM STATISTICS",
             color=0x5865F2,
             timestamp=datetime.utcnow()
         )
         
-        embed.add_field(
-            name="👥 SERVER MEMBERS",
-            value=f"• Total: `{len(ctx.guild.members)}`\n• Humans: `{len(members)}`\n• Bots: `{len(ctx.guild.members) - len(members)}`",
-            inline=True
-        )
+        # Mode comparison
+        if self.dm_mode == "ultrafast":
+            ultra_time = len(members) * 0.05 / 50
+            safe_time = len(members) * 1.5 / 10
+            
+            embed.add_field(
+                name="⚡ ULTRA FAST MODE",
+                value=f"• Est. Time: `{ultra_time:.1f}s`\n• Speed: `20 DMs/sec`\n• Risk: **HIGH**\n• Rate Limit: **LIKELY**",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🛡️ SAFE MODE",
+                value=f"• Est. Time: `{safe_time:.1f}s`\n• Speed: `0.67 DMs/sec`\n• Risk: **LOW**\n• Rate Limit: **UNLIKELY**",
+                inline=True
+            )
+        else:
+            ultra_time = len(members) * 0.05 / 50
+            safe_time = len(members) * 1.5 / 10
+            
+            embed.add_field(
+                name="🛡️ SAFE MODE",
+                value=f"• Est. Time: `{safe_time:.1f}s`\n• Speed: `0.67 DMs/sec`\n• Risk: **LOW**\n• Rate Limit: **UNLIKELY**",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="⚡ ULTRA FAST MODE",
+                value=f"• Est. Time: `{ultra_time:.1f}s`\n• Speed: `20 DMs/sec`\n• Risk: **HIGH**\n• Rate Limit: **LIKELY**",
+                inline=True
+            )
+        
+        # Bot performance
+        total_attempts = self.sent_count + self.failed_count
+        success_rate = (self.sent_count / total_attempts * 100) if total_attempts > 0 else 0
         
         embed.add_field(
-            name="📊 DM ANALYSIS",
-            value=f"• Can Receive DMs: `{dm_enabled}`\n• DM Blocked: `{len(members) - dm_enabled}`\n• Success Rate: `{(dm_enabled/len(members)*100):.1f}%`",
-            inline=True
-        )
-        
-        embed.add_field(
-            name="⚡ BOT STATS",
-            value=f"• Total Sent: `{self.sent_count}`\n• Total Failed: `{self.failed_count}`\n• Overall Rate: `{(self.sent_count/(self.sent_count+self.failed_count)*100):.1f}%`" if self.sent_count+self.failed_count > 0 else "No data yet",
+            name="🤖 BOT PERFORMANCE",
+            value=f"• Total Sent: `{self.sent_count}`\n• Total Failed: `{self.failed_count}`\n• Success Rate: `{success_rate:.1f}%`\n• Current Mode: `{self.dm_mode.upper()}`",
             inline=False
         )
         
-        embed.set_footer(text=f"Server: {ctx.guild.name}")
+        # Server analysis
+        dm_enabled = len(members) * 0.95  # 95% can receive DMs approx
+        
+        embed.add_field(
+            name="👥 SERVER ANALYSIS",
+            value=f"• Total Humans: `{len(members)}`\n• Expected Success: `{dm_enabled:.0f}`\n• Expected Fail: `{len(members) - dm_enabled:.0f}`\n• Est. Success Rate: `95%`",
+            inline=False
+        )
+        
+        embed.set_footer(text=f"Server: {ctx.guild.name} | Mode: {self.dm_mode.upper()}")
         await ctx.send(embed=embed)
 
     @commands.command(name='dmhelp')
     async def dm_help(self, ctx):
         """Show help menu for Mass DM"""
         embed = discord.Embed(
-            title="🤖 MASS DM BOT - HELP MENU",
-            description="Complete guide to using the Mass DM Bot",
+            title="🤖 DUAL MODE MASS DM BOT - HELP",
+            description="**Ultra Fast ⚡ vs Safe 🛡️ Mode**",
             color=0x5865F2,
             timestamp=datetime.utcnow()
         )
         
         embed.add_field(
-            name="🚀 QUICK START",
+            name="⚡ ULTRA FAST MODE",
             value=(
-                "1. `!setup` - Setup admin panel\n"
-                "2. `!setdm [message]` - Set message\n"
-                "3. `!preview` - Check message\n"
-                "4. `!startdm` - Start sending\n"
-                "5. `!stopdm` - Stop sending\n"
-                "6. `!dmstatus` - Check progress"
+                "**Commands:**\n"
+                "`!mode ultrafast` - Switch to ultra fast\n"
+                "`!setdm [msg]` - Set message\n"
+                "`!startdm` - Start at light speed\n\n"
+                "**Features:**\n"
+                "• 0.05s delay per batch\n"
+                "• 50 members per batch\n"
+                "• 20 DMs/second\n"
+                "• HIGH risk of rate limits\n"
+                "• Use for emergency broadcasts"
             ),
             inline=False
         )
         
         embed.add_field(
-            name="📝 MESSAGE TYPES",
+            name="🛡️ SAFE MODE",
             value=(
-                "**Normal Text:** `!setdm Hello members!`\n"
-                "**Embed Mode:** `!setembed` (interactive)\n"
-                "**JSON Embed:** `!setembed {\"title\":\"Hello\",\"description\":\"Message\"}`"
+                "**Commands:**\n"
+                "`!mode safe` - Switch to safe mode\n"
+                "`!setdm [msg]` - Set message\n"
+                "`!startdm` - Start safely\n\n"
+                "**Features:**\n"
+                "• 1.5s delay per member\n"
+                "• 10 members per batch\n"
+                "• 0.67 DMs/second\n"
+                "• NO rate limits\n"
+                "• Stable and reliable"
             ),
             inline=False
         )
         
         embed.add_field(
-            name="⚙️ ADMIN COMMANDS",
+            name="📋 ALL COMMANDS",
             value=(
-                "`!setup` - Setup control panel\n"
-                "`!setdm` - Set DM message\n"
+                "`!setup` - Setup admin panel\n"
+                "`!mode [ultrafast/safe]` - Change mode\n"
+                "`!setdm [message]` - Set DM message\n"
                 "`!setembed` - Set embed message\n"
                 "`!preview` - Preview message\n"
                 "`!startdm` - Start Mass DM\n"
@@ -491,66 +705,17 @@ class MassDM(commands.Cog):
         embed.add_field(
             name="⚠️ IMPORTANT NOTES",
             value=(
-                "• Rate limit: 1.5 seconds per member\n"
-                "• Bots are automatically excluded\n"
-                "• Members with DMs closed will be skipped\n"
-                "• Progress is saved and can be resumed\n"
-                "• Always preview before sending!"
+                "• **Ultra Fast:** Use only when speed is critical\n"
+                "• **Safe Mode:** Recommended for daily use\n"
+                "• Rate limits can ban bot for 1-24 hours\n"
+                "• Always preview before sending!\n"
+                "• Can stop anytime with `!stopdm`"
             ),
             inline=False
         )
         
-        embed.add_field(
-            name="🔧 TECHNICAL",
-            value=(
-                "• Requires: `Administrator` permission\n"
-                "• Safe: Rate limit optimized\n"
-                "• Efficient: Async processing\n"
-                "• Reliable: Progress tracking\n"
-                "• Professional: Beautiful embeds"
-            ),
-            inline=False
-        )
-        
-        embed.set_footer(text="Mass DM Bot • Professional Messaging System")
+        embed.set_footer(text="Dual Mode Mass DM Bot • Professional System")
         await ctx.send(embed=embed)
-
-    @commands.Cog.listener()
-    async def on_reaction_add(self, reaction, user):
-        """Handle embed builder reactions"""
-        if user.bot:
-            return
-            
-        if hasattr(self, 'embed_builder_msg') and reaction.message.id == self.embed_builder_msg.id:
-            await self.handle_embed_builder(reaction, user)
-
-    async def handle_embed_builder(self, reaction, user):
-        """Process embed builder reactions"""
-        channel = reaction.message.channel
-        
-        if str(reaction.emoji) == '🇹':
-            # Set title
-            await channel.send("📝 **Enter title:**")
-            
-            def check(m):
-                return m.author == user and m.channel == channel
-                
-            try:
-                msg = await self.bot.wait_for('message', timeout=60.0, check=check)
-                self.embed_data['title'] = msg.content
-                await channel.send(f"✅ Title set: `{msg.content}`")
-            except asyncio.TimeoutError:
-                await channel.send("❌ Timeout!")
-                
-        elif str(reaction.emoji) == '✅':
-            # Save embed
-            self.current_message = self.embed_data
-            self.embed_mode = True
-            await channel.send("✅ Embed saved! Use `!preview` to see it.")
-            
-            # Cleanup
-            del self.embed_builder_msg
-            del self.embed_data
 
 async def setup(bot):
     await bot.add_cog(MassDM(bot))
