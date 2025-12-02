@@ -4,5 +4,5 @@ __pycache__/
 .venv
 venv/
 *.log
-dm_bot_data.json
-config.json
+*.db
+*.sqlite3
