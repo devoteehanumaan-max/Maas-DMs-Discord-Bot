@@ -40,29 +40,22 @@ class MassDMBot(commands.Bot):
             json.dump(data, f, indent=4)
 
     async def setup_hook(self):
-        # Create cogs folder if not exists
-        if not os.path.exists('cogs'):
-            os.makedirs('cogs')
-            
         try:
+            # Load the massdm cog
             await self.load_extension("cogs.massdm")
             print("✅ Loaded Mass DM cog")
         except Exception as e:
             print(f"❌ Failed to load cog: {e}")
-            # Try to create cog file if missing
-            self.create_cog_file()
-
-        try:
-            synced = await self.tree.sync()
-            print(f"✅ Synced {len(synced)} commands")
-        except Exception as e:
-            print(f"⚠️ Command sync error: {e}")
-
-        self.status_task.start()
-
-    def create_cog_file(self):
-        """Create massdm.py if missing"""
-        cog_content = '''import discord
+            print("Creating cogs directory...")
+            
+            # Create cogs directory if not exists
+            if not os.path.exists('cogs'):
+                os.makedirs('cogs')
+                print("📁 Created cogs directory")
+            
+            # Create basic massdm.py if missing
+            with open('cogs/massdm.py', 'w') as f:
+                basic_cog = '''import discord
 from discord.ext import commands
 
 class MassDM(commands.Cog):
@@ -75,17 +68,38 @@ class MassDM(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(MassDM(bot))'''
-    
-        with open('cogs/massdm.py', 'w') as f:
-            f.write(cog_content)
-        print("📁 Created cogs/massdm.py")
+                f.write(basic_cog)
+                print("📝 Created basic cogs/massdm.py")
+            
+            # Try loading again
+            try:
+                await self.load_extension("cogs.massdm")
+                print("✅ Loaded basic cog")
+            except Exception as e2:
+                print(f"❌ Still failed: {e2}")
+
+        # Sync commands
+        try:
+            synced = await self.tree.sync()
+            print(f"✅ Synced {len(synced)} commands")
+        except Exception as e:
+            print(f"⚠️ Command sync error: {e}")
+
+        # Start background tasks
+        self.status_task.start()
 
     async def on_ready(self):
         print(f"🚀 {self.user} is ONLINE!")
         print(f"📊 Connected to {len(self.guilds)} servers")
         print(f"🔧 Prefix: !")
-        print(f"💻 Ready to send Mass DMs!")
+        print(f"💻 Commands: !setup, !setdm, !startdm, etc.")
         
+        # Check token validity
+        if not TOKEN:
+            print("❌ ERROR: No Discord token found!")
+        else:
+            print("✅ Token: Found")
+            
     @tasks.loop(minutes=5)
     async def status_task(self):
         try:
@@ -98,18 +112,40 @@ async def setup(bot):
         except:
             pass
 
+    @status_task.before_loop
+    async def before_status_task(self):
+        await self.wait_until_ready()
+
 if __name__ == "__main__":
-    print("🚀 Starting Mass DM Bot...")
-    print(f"📁 Current directory: {os.getcwd()}")
+    print("=" * 50)
+    print("🚀 STARTING MASS DM BOT")
+    print("=" * 50)
     
-    # Check for token
+    # Check for required files
+    required_files = ['cogs/massdm.py', 'requirements.txt', 'Procfile']
+    for file in required_files:
+        if os.path.exists(file):
+            print(f"✅ {file} - Found")
+        else:
+            print(f"⚠️ {file} - Missing")
+    
+    # Check token
     if not TOKEN:
-        print("❌ ERROR: DISCORD_TOKEN not found in environment variables!")
-        print("💡 Create .env file with: DISCORD_TOKEN=your_token_here")
-        exit(1)
+        print("❌ ERROR: DISCORD_TOKEN environment variable not set!")
+        print("💡 On Render: Add environment variable")
+        print("💡 Locally: Create .env file with DISCORD_TOKEN=your_token")
+    else:
+        print("✅ Discord token: Loaded")
     
+    print("-" * 50)
+    
+    # Create bot and run
     bot = MassDMBot()
     
-    # Run with error handling
     try:
         bot.run(TOKEN)
+    except discord.errors.LoginFailure:
+        print("❌ ERROR: Invalid Discord token!")
+        print("💡 Check your token in Discord Developer Portal")
+    except Exception as e:
+        print(f"❌ ERROR: {type(e).__name__}: {str(e)}")
